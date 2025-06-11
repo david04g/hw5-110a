@@ -21,41 +21,37 @@ def parse_instruction(instr: str) -> Tuple[str, ...]:
     return ('other', instr)
 
 def LVN(program: List[str]) -> Tuple[List[str], List[str], int]:
-    """
-    Perform local value numbering:
-    - program: list of ClassIeR code lines
-    Returns:
-      1. new program list with arithmetic redundancies replaced by copies
-      2. list of new virtual registers used
-      3. count of replaced arithmetic instructions
-    """
-    expr_table   = {}             # maps (op, operands) -> existing dest
-    new_program  = []             # output lines
-    new_vars     = set()          # collect any new regs
+    expr_table   = {}
+    new_program  = []
+    new_vars     = set()
     replaced_cnt = 0
 
     for line in program:
+        stripped = line.strip()
+
+        # 1) detect label or branch → start new basic block
+        if stripped.endswith(':') or stripped.startswith('goto ') or stripped.startswith('ifFalse '):
+            expr_table.clear()
+            new_program.append(line)
+            continue
+
         kind = parse_instruction(line)
 
+        # 2) arithmetic operations
         if kind[0] == 'op':
             _, dst, op, a1, a2 = kind
-            # only virtual registers
             if is_virtual(a1) and is_virtual(a2):
-                # commutative ops
-                if op in ('add','mul','eq'):
-                    key = (op, tuple(sorted((a1,a2))))
-                else:
-                    key = (op, (a1,a2))
-
+                key = (op, tuple(sorted((a1, a2)))) if op in ('add','mul','eq') else (op, (a1,a2))
                 if key in expr_table:
-                    existing = expr_table[key]
-                    new_program.append(f"{dst} = {existing}")
+                    new_program.append(f"{dst} = {expr_table[key]}")
                     replaced_cnt += 1
                 else:
                     expr_table[key] = dst
                     new_program.append(line)
                 new_vars.add(dst)
                 continue
+
+        # 3) copy instructions
         if kind[0] == 'copy':
             _, dst, src = kind
             new_program.append(line)
@@ -63,7 +59,8 @@ def LVN(program: List[str]) -> Tuple[List[str], List[str], int]:
                 new_vars.add(dst)
             continue
 
-        # all other instructions
+        # 4) any other instruction (e.g. I/O, declarations) ends the block
+        expr_table.clear()
         new_program.append(line)
 
     return new_program, sorted(new_vars), replaced_cnt
