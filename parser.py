@@ -1,9 +1,9 @@
+# change types to type ~ change IDtypes to IDtype
 import pdb
 import class_ast as class_ast
 from class_ast import *
-from typing import Callable, List, Tuple, Optional
-from scanner import Lexeme, Token, Scanner
-from enum import Enum
+from typing import Callable,List,Tuple,Optional
+from scanner import Lexeme,Token,Scanner
 
 # Extra classes:
 
@@ -17,10 +17,16 @@ class IDType(Enum):
 # The data to be stored for each ID in the symbol table
 class SymbolTableData:
     def __init__(self, id_type: IDType, data_type: Type, new_name: str) -> None:
-        self.id_type = id_type      # IO or VAR
-        self.data_type = data_type  # INT or FLOAT
-        self.new_name = new_name    # renaming for scoping
+        self.id_type = id_type      # if the variable is input/output
+                                    # or variable
+                                    
+        self.data_type = data_type  # if the variable is an int or
+                                    # float
+                                    
+        self.new_name = new_name    # a new name to resolve collisions
+                                    # in scoping
 
+    # Getters for each of the elements
     def get_id_type(self) -> IDType:
         return self.id_type
 
@@ -33,58 +39,71 @@ class SymbolTableData:
 # Symbol Table exception, requires a line number and ID
 class SymbolTableException(Exception):
     def __init__(self, lineno: int, ID: str) -> None:
-        message = "Symbol table error on line: " + str(lineno) + \
-                  "\nUndeclared ID: " + str(ID)
+        message = "Symbol table error on line: " + str(lineno) + "\nUndeclared ID: " + str(ID)
         super().__init__(message)
 
-# Generates new labels
+# Generates a new label when needed
 class NewLabelGenerator():
     def __init__(self) -> None:
         self.counter = 0
-
+        
     def mk_new_label(self) -> str:
         new_label = "label" + str(self.counter)
         self.counter += 1
         return new_label
 
-# Generates new names for program variables
+# Generates a new name (e.g. for program variables)
+# when needed
 class NewNameGenerator():
     def __init__(self) -> None:
         self.counter = 0
         self.new_names = []
 
+    # You may want to make a better renaming scheme
     def mk_new_name(self) -> str:
         new_name = "_new_name" + str(self.counter)
         self.counter += 1
         self.new_names.append(new_name)
         return new_name
-
+    
 # Allocates virtual registers
 class VRAllocator():
     def __init__(self) -> None:
         self.counter = 0
-
+        
     def mk_new_vr(self) -> str:
         vr = "vr" + str(self.counter)
         self.counter += 1
         return vr
 
+    # get variable declarations (needed for the C++ wrapper)
     def declare_variables(self) -> List[str]:
         ret = []
         for i in range(self.counter):
-            ret.append(f"virtual_reg vr{i};")
+            ret.append("virtual_reg vr%d;" % i)
+
         return ret
 
 # Symbol table class
 class SymbolTable:
     def __init__(self) -> None:
+        # stack of hashtables
         self.ht_stack = [dict()]
 
     def insert(self, ID: str, id_type: IDType, data_type: Type) -> None:
+        
+        # Create the data to store for the ID
+        
+        # HOMEWORK: make sure this is storing the
+        # right information! You may need to use
+        # the new name generator to make new names
+        # for some ids
         info = SymbolTableData(id_type, data_type, ID)
-        self.ht_stack[-1][ID] = info
+        self.ht_stack[-1][ID] = info        
 
-    def lookup(self, ID: str) -> Optional[SymbolTableData]:
+    # Lookup the symbol. If it is there, return the
+    # info, otherwise return Noney
+    def lookup(self, ID: str) -> Optional:
         for ht in reversed(self.ht_stack):
             if ID in ht:
                 return ht[ID]
@@ -98,152 +117,203 @@ class SymbolTable:
 
 # Parser Exception
 class ParserException(Exception):
+    
+    # Pass a line number, current lexeme, and what tokens are expected
     def __init__(self, lineno: int, lexeme: Lexeme, tokens: List[Token]) -> None:
-        message = ("Parser error on line: " + str(lineno) +
-                   "\nExpected one of: " + str(tokens) +
-                   "\nGot: " + str(lexeme))
+        message = "Parser error on line: " + str(lineno) + "\nExpected one of: " + str(tokens) + "\nGot: " + str(lexeme)
         super().__init__(message)
 
 # Parser class
 class Parser:
 
+    # Creating the parser requires a scanner
     def __init__(self, scanner: Scanner) -> None:
+        
         self.scanner = scanner
+
+        # Create a symbol table
         self.symbol_table = SymbolTable()
+
+        # objects to create virtual registers,
+        # labels, and new names
         self.vra = VRAllocator()
         self.nlg = NewLabelGenerator()
         self.nng = NewNameGenerator()
-        self.function_name = None
-        self.function_args: List[Tuple[str,str]] = []
-        self.unroll_factor = 1
 
+        # needed to create the C++ wrapper
+        # You do not need to modify these for the
+        # homework
+        self.function_name = None
+        self.function_args = []
+
+    # HOMEWORK: top level function:
+    # This needs to return a list of 3 address instructions
     def parse(self, s: str) -> List[str]:
+
+        # Set the scanner and get the first token
         self.scanner.input_string(s)
         self.to_match = self.scanner.token()
+
+        # start parsing. In your solution, p must contain a list of
+        # three address instructions
         p = self.parse_function()
         self.eat(None)
+        
         return p
 
-    def get_token_id(self, l: Lexeme) -> Token:
+    # Helper fuction: get the token ID
+    def get_token_id(self, l: Lexeme) ->Token:
         if l is None:
             return None
         return l.token
 
+    # Helper fuction: eat a token ID and advance
+    # to the next token
     def eat(self, check: Token) -> None:
         token_id = self.get_token_id(self.to_match)
         if token_id != check:
             raise ParserException(self.scanner.get_lineno(),
                                   self.to_match,
-                                  [check])
+                                  [check])      
         self.to_match = self.scanner.token()
 
+    # The top level parse_function
     def parse_function(self) -> List[str]:
-        self.parse_function_header()
+
+        # I am parsing the function header for you
+        # You do not need to do anything with this.
+        self.parse_function_header()    
         self.eat(Token.LBRACE)
-        p = self.parse_statement_list()
+
+        # your solution should have p containing a list
+        # of three address instructions
+        p = self.parse_statement_list()        
         self.eat(Token.RBRACE)
         return p
 
+    # You do not need to modify this for your homework
+    # but you can look :) 
     def parse_function_header(self) -> None:
         self.eat(Token.VOID)
         function_name = self.to_match.value
-        self.eat(Token.ID)
+        self.eat(Token.ID)        
         self.eat(Token.LPAR)
         self.function_name = function_name
-        args = self.parse_arg_list() or []
+        args = self.parse_arg_list()
         self.function_args = args
         self.eat(Token.RPAR)
 
-    def parse_arg_list(self) -> List[Tuple[str,str]]:
+    # You do not need to modify this for your homework
+    # but you can look :) 
+    def parse_arg_list(self) -> List[Tuple[str, str]]:
         token_id = self.get_token_id(self.to_match)
         if token_id == Token.RPAR:
-            return []
+            return
         arg = self.parse_arg()
         token_id = self.get_token_id(self.to_match)
         if token_id == Token.RPAR:
             return [arg]
         self.eat(Token.COMMA)
-        return self.parse_arg_list() + [arg]
+        arg_l = self.parse_arg_list()
+        return arg_l + [arg]
 
-    def parse_arg(self) -> Tuple[str,str]:
+    # You do not need to modify this for your homework
+    # but you can look :) 
+    def parse_arg(self) -> Tuple[str, str]:
         token_id = self.get_token_id(self.to_match)
         if token_id == Token.FLOAT:
             self.eat(Token.FLOAT)
             data_type = Type.FLOAT
-            data_type_str = "float"
+            data_type_str = "float"            
         elif token_id == Token.INT:
             self.eat(Token.INT)
             data_type = Type.INT
             data_type_str = "int"
         else:
             raise ParserException(self.scanner.get_lineno(),
-                                  self.to_match,
-                                  [Token.INT, Token.FLOAT])
+                              self.to_match,            
+                              [Token.INT, Token.FLOAT])
         self.eat(Token.AMP)
+	# change strings and indexing token.names .value .token
         id_name = self.to_match.value
         self.eat(Token.ID)
+
+        # storing an IO variable to the symbol table
         self.symbol_table.insert(id_name, IDType.IO, data_type)
         return (id_name, data_type_str)
-
+        
+    # The top level parsing function for your homework
+    # This function needs to return a list of three address codes
     def parse_statement_list(self) -> List[str]:
         token_id = self.get_token_id(self.to_match)
         if token_id in [Token.INT, Token.FLOAT, Token.ID, Token.IF, Token.LBRACE, Token.FOR]:
-            stm = self.parse_statement() or []
-            return stm + self.parse_statement_list()
-        return []
-
+            self.parse_statement()
+            self.parse_statement_list()
+            return []
+        if token_id in [Token.RBRACE]:
+            return []
+        
+    # you need to return a list of three address instructions
+    # from the statement that gets parsed
     def parse_statement(self) -> List[str]:
         token_id = self.get_token_id(self.to_match)
         if token_id in [Token.INT, Token.FLOAT]:
-            return self.parse_declaration_statement() or []
-        if token_id == Token.ID:
-            return self.parse_assignment_statement() or []
-        if token_id == Token.IF:
-            return self.parse_if_else_statement() or []
-        if token_id == Token.LBRACE:
-            return self.parse_block_statement() or []
-        if token_id == Token.FOR:
-            return self.parse_for_statement() or []
-        raise ParserException(self.scanner.get_lineno(),
-                              self.to_match,
-                              [Token.FOR, Token.IF, Token.LBRACE,
-                               Token.INT, Token.FLOAT, Token.ID])
+            self.parse_declaration_statement()
+        elif token_id in [Token.ID]:
+            self.parse_assignment_statement()
+        elif token_id in [Token.IF]:
+            self.parse_if_else_statement()
+        elif token_id in [Token.LBRACE]:
+            self.parse_block_statement()
+        elif token_id in [Token.FOR]:
+            self.parse_for_statement()
+        else:
+            raise ParserException(self.scanner.get_lineno(),
+                              self.to_match,            
+                              [Token.FOR, Token.IF, Token.LBRACE, Token.INT, Token.FLOAT, Token.ID])
 
+    # you need to return a list of three address instructions
     def parse_declaration_statement(self) -> List[str]:
         token_id = self.get_token_id(self.to_match)
-        if token_id == Token.INT:
+        if token_id in [Token.INT]:
             self.eat(Token.INT)
             id_name = self.to_match.value
+            # Think about what you want to insert into the symbol table
+            # self.symbol_table.insert(...)
             self.eat(Token.ID)
-            self.symbol_table.insert(id_name, IDType.VAR, Type.INT)
             self.eat(Token.SEMI)
-            return []
-        if token_id == Token.FLOAT:
+            return
+        if token_id in [Token.FLOAT]:
             self.eat(Token.FLOAT)
             id_name = self.to_match.value
+            # Think about what you want to insert into the symbol table
+            # self.symbol_table.insert(...)
             self.eat(Token.ID)
-            self.symbol_table.insert(id_name, IDType.VAR, Type.FLOAT)
             self.eat(Token.SEMI)
-            return []
+            return
+        
         raise ParserException(self.scanner.get_lineno(),
-                              self.to_match,
+                              self.to_match,            
                               [Token.INT, Token.FLOAT])
 
+    # you need to return a list of three address instructions
     def parse_assignment_statement(self) -> List[str]:
-        base = self.parse_assignment_statement_base()
+        self.parse_assignment_statement_base()
         self.eat(Token.SEMI)
-        return base or []
+        return
 
+    # you need to return a list of three address instructions
     def parse_assignment_statement_base(self) -> List[str]:
         id_name = self.to_match.value
         id_data = self.symbol_table.lookup(id_name)
-        if id_data is None:
+        if id_data == None:
             raise SymbolTableException(self.scanner.get_lineno(), id_name)
         self.eat(Token.ID)
         self.eat(Token.ASSIGN)
         self.parse_expr()
-        return []
+        return 
 
+    # you need to return a list of three address instructions
     def parse_if_else_statement(self) -> List[str]:
         self.eat(Token.IF)
         self.eat(Token.LPAR)
@@ -252,71 +322,30 @@ class Parser:
         self.parse_statement()
         self.eat(Token.ELSE)
         self.parse_statement()
-        return []
-
+        return
+    
+    # you need to return a list of three address instructions
     def parse_block_statement(self) -> List[str]:
         self.eat(Token.LBRACE)
         self.symbol_table.push_scope()
-        body = self.parse_statement_list()
+        self.parse_statement_list()
         self.symbol_table.pop_scope()
         self.eat(Token.RBRACE)
-        return []
+        return
 
+    # you need to return a list of three address instructions
     def parse_for_statement(self) -> List[str]:
         self.eat(Token.FOR)
         self.eat(Token.LPAR)
-
-        # initializer
-        init_code = self.parse_assignment_statement()
+        self.parse_assignment_statement()
+        self.parse_expr()
         self.eat(Token.SEMI)
-
-        # condition
-        cond_ast = self.parse_expr()
-        self.eat(Token.SEMI)
-
-        # update
-        update_code = self.parse_assignment_statement_base()
+        self.parse_assignment_statement_base()
         self.eat(Token.RPAR)
+        self.parse_statement()
+        return
 
-        # body
-        self.symbol_table.push_scope()
-        body_code = self.parse_statement() or []
-        self.symbol_table.pop_scope()
-
-        # loop unrolling
-        try:
-            if (isinstance(cond_ast, ASTBinOpNode)
-                and cond_ast.op == '<'
-                and isinstance(cond_ast.left, ASTIDNode)
-                and isinstance(cond_ast.right, ASTNUMNode)):
-
-                var = cond_ast.left.name
-                limit = cond_ast.right.value
-
-                init_str = init_code[0].strip() if len(init_code)==1 else ""
-                upd_str  = update_code[0].strip() if len(update_code)==1 else ""
-
-                if init_str.startswith(f"{var}=") and upd_str == f"{var}={var}+1":
-                    start = int(init_str.split('=')[1])
-                    uf = self.unroll_factor
-                    count = limit - start
-                    if count % uf == 0:
-                        out = []
-                        for v in range(start, limit, uf):
-                            for j in range(uf):
-                                iv = v + j
-                                for ln in body_code:
-                                    out.append(ln.replace(var, str(iv)))
-                        return out
-        except:
-            pass
-
-        # fallback
-        L0 = self.nlg.mk_new_label()
-        L1 = self.nlg.mk_new_label()
-        cond_line = f"ifFalse {cond_ast.to_code()} goto {L1}"
-        return init_code + [f"{L0}:"] + [cond_line] + body_code + update_code + [f"goto {L0}", f"{L1}:"]
-# you need to build and return an AST
+    # you need to build and return an AST
     def parse_expr(self) -> ASTNode:        
         self.parse_comp()
         self.parse_expr2()
