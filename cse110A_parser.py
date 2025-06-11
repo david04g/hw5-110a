@@ -1,10 +1,9 @@
-# cse110a_parser.py
-from cse110A_ast import *
-from typing import Callable, List, Tuple, Optional
-from scanner import Lexeme, Token, Scanner
+# cse110A_parser.py
 from enum import Enum
+from cse110A_ast import *
+from typing import List, Tuple, Optional
+from scanner import Lexeme, Token, Scanner
 
-# Extra classes:
 class IDType(Enum):
     IO = 1
     VAR = 2
@@ -26,7 +25,7 @@ class SymbolTableException(Exception):
         message = f"Symbol table error on line: {lineno}\nUndeclared ID: {ID}"
         super().__init__(message)
 
-class NewLabelGenerator():
+class NewLabelGenerator:
     def __init__(self) -> None:
         self.counter = 0
     def mk_new_label(self) -> str:
@@ -34,7 +33,7 @@ class NewLabelGenerator():
         self.counter += 1
         return lbl
 
-class NewNameGenerator():
+class NewNameGenerator:
     def __init__(self) -> None:
         self.counter = 0
         self.new_names = []
@@ -44,7 +43,7 @@ class NewNameGenerator():
         self.new_names.append(nm)
         return nm
 
-class VRAllocator():
+class VRAllocator:
     def __init__(self) -> None:
         self.counter = 0
     def mk_new_vr(self) -> str:
@@ -52,21 +51,14 @@ class VRAllocator():
         self.counter += 1
         return vr
     def declare_variables(self) -> List[str]:
-        ret = []
-        for i in range(self.counter):
-            ret.append(f"virtual_reg vr{i};")
-        return ret
+        return [f"virtual_reg vr{i};" for i in range(self.counter)]
 
 class SymbolTable:
     def __init__(self) -> None:
         self.ht_stack = [dict()]
     def insert(self, ID: str, id_type: IDType, data_type: Type, nng: Optional[NewNameGenerator] = None) -> None:
-        if id_type == IDType.VAR:
-            new_name = nng.mk_new_name()
-        else:
-            new_name = ID
-        info = SymbolTableData(id_type, data_type, new_name)
-        self.ht_stack[-1][ID] = info
+        new_name = nng.mk_new_name() if id_type == IDType.VAR else ID
+        self.ht_stack[-1][ID] = SymbolTableData(id_type, data_type, new_name)
     def lookup(self, ID: str) -> Optional[SymbolTableData]:
         for ht in reversed(self.ht_stack):
             if ID in ht:
@@ -79,7 +71,7 @@ class SymbolTable:
 
 class ParserException(Exception):
     def __init__(self, lineno: int, lexeme: Lexeme, tokens: List[Token]) -> None:
-        message = (f"Parser error on line: {lineno}\nExpected one of: {tokens}\nGot: {lexeme}")
+        message = f"Parser error on line: {lineno}\nExpected one of: {tokens}\nGot: {lexeme}"
         super().__init__(message)
 
 class Parser:
@@ -112,13 +104,10 @@ class Parser:
         return p
 
     def get_token_id(self, l: Lexeme) -> Token:
-        if l is None:
-            return None
-        return l.token
+        return None if l is None else l.token
 
     def eat(self, check: Token) -> None:
-        token_id = self.get_token_id(self.to_match)
-        if token_id != check:
+        if self.get_token_id(self.to_match) != check:
             raise ParserException(self.scanner.get_lineno(), self.to_match, [check])
         self.to_match = self.scanner.token()
 
@@ -134,11 +123,10 @@ class Parser:
         self.function_name = self.to_match.value
         self.eat(Token.ID)
         self.eat(Token.LPAR)
-        args = self.parse_arg_list()
-        self.function_args = args
+        self.function_args = self.parse_arg_list()
         self.eat(Token.RPAR)
 
-    def parse_arg_list(self) -> List[Tuple[str,str]]:
+    def parse_arg_list(self) -> List[Tuple[str, str]]:
         if self.get_token_id(self.to_match) == Token.RPAR:
             return []
         arg = self.parse_arg()
@@ -151,26 +139,24 @@ class Parser:
         tok = self.get_token_id(self.to_match)
         if tok == Token.FLOAT:
             self.eat(Token.FLOAT)
-            data_type = Type.FLOAT
-            data_str = "float"
+            dt = Type.FLOAT
+            ds = "float"
         elif tok == Token.INT:
             self.eat(Token.INT)
-            data_type = Type.INT
-            data_str = "int"
+            dt = Type.INT
+            ds = "int"
         else:
             raise ParserException(self.scanner.get_lineno(), self.to_match, [Token.INT, Token.FLOAT])
         self.eat(Token.AMP)
-        id_name = self.to_match.value
+        nm = self.to_match.value
         self.eat(Token.ID)
-        self.symbol_table.insert(id_name, IDType.IO, data_type)
-        return (id_name, data_str)
+        self.symbol_table.insert(nm, IDType.IO, dt)
+        return (nm, ds)
 
     def parse_statement_list(self) -> List[str]:
         tok = self.get_token_id(self.to_match)
         if tok in [Token.INT, Token.FLOAT, Token.ID, Token.IF, Token.LBRACE, Token.FOR]:
-            a = self.parse_statement()
-            b = self.parse_statement_list()
-            return a + b
+            return self.parse_statement() + self.parse_statement_list()
         return []
 
     def parse_statement(self) -> List[str]:
@@ -192,217 +178,227 @@ class Parser:
         tok = self.get_token_id(self.to_match)
         if tok == Token.INT:
             self.eat(Token.INT)
-            id_name = self.to_match.value
+            nm = self.to_match.value
             self.eat(Token.ID)
             self.eat(Token.SEMI)
-            self.symbol_table.insert(id_name, IDType.VAR, Type.INT, self.nng)
+            self.symbol_table.insert(nm, IDType.VAR, Type.INT, self.nng)
             return []
         if tok == Token.FLOAT:
             self.eat(Token.FLOAT)
-            id_name = self.to_match.value
+            nm = self.to_match.value
             self.eat(Token.ID)
             self.eat(Token.SEMI)
-            self.symbol_table.insert(id_name, IDType.VAR, Type.FLOAT, self.nng)
+            self.symbol_table.insert(nm, IDType.VAR, Type.FLOAT, self.nng)
             return []
         raise ParserException(self.scanner.get_lineno(), self.to_match, [Token.INT, Token.FLOAT])
 
-    def parse_assignment_statement_base(self, return_details: bool=False):
-        id_name = self.to_match.value
-        id_data = self.symbol_table.lookup(id_name)
-        if id_data is None:
-            raise SymbolTableException(self.scanner.get_lineno(), id_name)
+    def parse_assignment_statement_base(self, return_details: bool = False):
+        nm = self.to_match.value
+        data = self.symbol_table.lookup(nm)
+        if data is None:
+            raise SymbolTableException(self.scanner.get_lineno(), nm)
         self.eat(Token.ID)
         self.eat(Token.ASSIGN)
-        expr_ast = self.parse_expr()
-        type_inference(expr_ast)
-        if id_data.data_type == Type.INT and expr_ast.node_type == Type.FLOAT:
-            new_root = ASTFloatToIntNode(expr_ast)
-            new_root.node_type = Type.INT
-            expr_ast = new_root
-        elif id_data.data_type == Type.FLOAT and expr_ast.node_type == Type.INT:
-            new_root = ASTIntToFloatNode(expr_ast)
-            new_root.node_type = Type.FLOAT
-            expr_ast = new_root
-        self.allocate_vrs(expr_ast)
-        program = expr_ast.linearize_code()
-        if id_data.id_type == IDType.IO:
-            if id_data.data_type == Type.INT:
-                inst = [f"{id_name} = vr2int({expr_ast.vr});"]
-            else:
-                inst = [f"{id_name} = vr2float({expr_ast.vr});"]
+        ast = self.parse_expr()
+        type_inference(ast)
+        if data.data_type == Type.INT and ast.node_type == Type.FLOAT:
+            conv = ASTFloatToIntNode(ast)
+            conv.node_type = Type.INT
+            ast = conv
+        elif data.data_type == Type.FLOAT and ast.node_type == Type.INT:
+            conv = ASTIntToFloatNode(ast)
+            conv.node_type = Type.FLOAT
+            ast = conv
+        self.allocate_vrs(ast)
+        pr = ast.linearize_code()
+        if data.id_type == IDType.IO:
+            inst = [f"{nm} = vr2int({ast.vr});"] if data.data_type == Type.INT else [f"{nm} = vr2float({ast.vr});"]
         else:
-            inst = [f"{id_data.new_name} = {expr_ast.vr};"]
-        inst_list = program + inst
-        if return_details:
-            return inst_list, id_name, expr_ast
-        return inst_list
+            inst = [f"{data.get_new_name()} = {ast.vr};"]
+        seq = pr + inst
+        return (seq, nm, ast) if return_details else seq
 
     def parse_assignment_statement(self) -> List[str]:
-        i = self.parse_assignment_statement_base()
+        seq = self.parse_assignment_statement_base()
         self.eat(Token.SEMI)
-        return i
+        return seq
 
     def parse_if_else_statement(self) -> List[str]:
         self.eat(Token.IF)
         self.eat(Token.LPAR)
-        expr_ast = self.parse_expr()
-        type_inference(expr_ast)
-        self.allocate_vrs(expr_ast)
-        expr_prog = expr_ast.linearize_code()
+        ast = self.parse_expr()
+        type_inference(ast)
+        self.allocate_vrs(ast)
+        pr = ast.linearize_code()
         else_lbl = self.nlg.mk_new_label()
         end_lbl = self.nlg.mk_new_label()
-        zero_vr = self.vra.mk_new_vr()
-        cmp_ins = [f"{zero_vr} = int2vr(0);", f"beq({expr_ast.vr}, {zero_vr}, {else_lbl});"]
-        br_ins  = [f"branch({end_lbl});"]
+        z = self.vra.mk_new_vr()
+        ci = [f"{z} = int2vr(0);", f"beq({ast.vr}, {z}, {else_lbl});"]
+        br = [f"branch({end_lbl});"]
         self.eat(Token.RPAR)
-        if_prog = self.parse_statement()
+        ip = self.parse_statement()
         self.eat(Token.ELSE)
-        else_prog = self.parse_statement()
-        return expr_prog + cmp_ins + if_prog + br_ins + [f"{else_lbl}:"] + else_prog + [f"{end_lbl}:"]
+        ep = self.parse_statement()
+        return pr + ci + ip + br + [f"{else_lbl}:"] + ep + [f"{end_lbl}:"]
 
     def parse_block_statement(self) -> List[str]:
         self.eat(Token.LBRACE)
         self.symbol_table.push_scope()
-        ret = self.parse_statement_list()
+        seq = self.parse_statement_list()
         self.symbol_table.pop_scope()
         self.eat(Token.RBRACE)
-        return ret
+        return seq
 
     def parse_for_statement(self) -> List[str]:
         self.eat(Token.FOR)
         self.eat(Token.LPAR)
-        init_prog, init_var, init_ast = self.parse_assignment_statement_base(return_details=True)
+        init_pr, init_nm, init_ast = self.parse_assignment_statement_base(True)
         self.eat(Token.SEMI)
         cond_ast = self.parse_expr()
         type_inference(cond_ast)
         self.allocate_vrs(cond_ast)
-        cond_prog = cond_ast.linearize_code()
+        cond_pr = cond_ast.linearize_code()
         self.eat(Token.SEMI)
-        update_prog, update_var, update_ast = self.parse_assignment_statement_base(return_details=True)
+        upd_pr, upd_nm, upd_ast = self.parse_assignment_statement_base(True)
         self.eat(Token.RPAR)
-        body_prog = self.parse_statement()
+        body = self.parse_statement()
+        data = self.symbol_table.lookup(init_nm)
+        vstr = data.get_new_name() if data else init_nm
         uf = self.uf
-        can_unroll = False
+        can = False
         if isinstance(init_ast, ASTNumNode) and init_ast.node_type == Type.INT:
             start = init_ast.value
-            if (isinstance(cond_ast, ASTLtNode)
-                and isinstance(cond_ast.l_child, ASTVarIDNode)
-                and cond_ast.l_child.get_name() == init_var
-                and isinstance(cond_ast.r_child, ASTNumNode)
-                and cond_ast.r_child.node_type == Type.INT):
+            if isinstance(cond_ast, ASTLtNode) and cond_ast.l_child.get_name() == vstr and isinstance(cond_ast.r_child, ASTNumNode):
                 bound = cond_ast.r_child.value
-                if (isinstance(update_ast, ASTPlusNode)
-                    and isinstance(update_ast.l_child, ASTVarIDNode)
-                    and update_ast.l_child.get_name() == init_var
-                    and isinstance(update_ast.r_child, ASTNumNode)
-                    and update_ast.r_child.value == 1):
-                    body_text = "\n".join(body_prog)
-                    if "beq" not in body_text and "branch" not in body_text and f"{init_var} =" not in body_text:
-                        n_iters = bound - start
-                        if uf > 1 and n_iters > 0 and n_iters % uf == 0:
-                            can_unroll = True
-        lg = self.nlg; vr = self.vra
-        loop_start = lg.mk_new_label()
-        loop_end   = lg.mk_new_label()
-        zero_vr    = vr.mk_new_vr()
-        cmp_ins    = [f"{zero_vr} = int2vr(0);", f"beq({cond_ast.vr}, {zero_vr}, {loop_end});"]
-        br_ins     = [f"branch({loop_start});"]
-        if can_unroll:
-            unrolled = []
+                if isinstance(upd_ast, ASTPlusNode) and upd_ast.l_child.get_name() == vstr and isinstance(upd_ast.r_child, ASTNumNode) and upd_ast.r_child.value == 1:
+                    txt = "\n".join(body)
+                    if all(x not in txt for x in ["beq", "branch", f"{vstr} ="]):
+                        n = bound - start
+                        if uf > 1 and n > 0 and n % uf == 0:
+                            can = True
+        ls = self.nlg.mk_new_label()
+        le = self.nlg.mk_new_label()
+        z = self.vra.mk_new_vr()
+        ci = [f"{z} = int2vr(0);", f"beq({cond_ast.vr}, {z}, {le});"]
+        br = [f"branch({ls});"]
+        if can:
+            un = []
             for j in range(uf):
-                off = vr.mk_new_vr()
-                unrolled.append(f"{off} = int2vr({j});")
-                ptr = vr.mk_new_vr()
-                unrolled.append(f"{ptr} = {init_var} + {off};")
-                for inst in body_prog:
-                    unrolled.append(inst.replace(init_var, ptr))
-            step = vr.mk_new_vr()
-            unrolled.append(f"{step} = int2vr({uf});")
-            unrolled.append(f"{init_var} = {init_var} + {step};")
-            return (
-                init_prog +
-                [f"{loop_start}:"] +
-                cond_prog +
-                cmp_ins +
-                unrolled +
-                br_ins +
-                [f"{loop_end}:"]
-            )
-        return (
-            init_prog +
-            [f"{loop_start}:"] +
-            cond_prog +
-            cmp_ins +
-            body_prog +
-            update_prog +
-            br_ins +
-            [f"{loop_end}:"]
-        )
+                off = self.vra.mk_new_vr()
+                un.append(f"{off} = int2vr({j});")
+                ptr = self.vra.mk_new_vr()
+                un.append(f"{ptr} = {vstr} + {off};")
+                for ins in body:
+                    un.append(ins.replace(vstr, ptr))
+            step = self.vra.mk_new_vr()
+            un.append(f"{step} = int2vr({uf});")
+            un.append(f"{vstr} = {vstr} + {step};")
+            return init_pr + [f"{ls}:"] + cond_pr + ci + un + br + [f"{le}:"]
+        return init_pr + [f"{ls}:"] + cond_pr + ci + body + upd_pr + br + [f"{le}:"]
 
     def parse_expr(self) -> ASTNode:
-        n = self.parse_comp()
-        return self.parse_expr2(n)
+        return self.parse_expr2(self.parse_comp())
+
     def parse_expr2(self, lhs: ASTNode) -> ASTNode:
-        tok = self.get_token_id(self.to_match)
-        if tok == Token.EQ:
+        if self.get_token_id(self.to_match) == Token.EQ:
             self.eat(Token.EQ)
-            r = self.parse_comp()
-            return self.parse_expr2(ASTEqNode(lhs, r))
+            rhs = self.parse_comp()
+            return self.parse_expr2(ASTEqNode(lhs, rhs))
         return lhs
+
     def parse_comp(self) -> ASTNode:
-        n = self.parse_factor()
-        return self.parse_comp2(n)
+        return self.parse_comp2(self.parse_factor())
+
     def parse_comp2(self, lhs: ASTNode) -> ASTNode:
-        tok = self.get_token_id(self.to_match)
-        if tok == Token.LT:
-            self.eat(Token.LT); r = self.parse_factor()
-            return self.parse_comp2(ASTLtNode(lhs, r))
+        if self.get_token_id(self.to_match) == Token.LT:
+            self.eat(Token.LT)
+            rhs = self.parse_factor()
+            return self.parse_comp2(ASTLtNode(lhs, rhs))
         return lhs
-    def parse_factor(self, node=None) -> ASTNode:
-        n = self.parse_term() if node is None else node
-        return self.parse_factor2(n)
+
+    def parse_factor(self) -> ASTNode:
+        return self.parse_factor2(self.parse_term())
+
     def parse_factor2(self, lhs: ASTNode) -> ASTNode:
         tok = self.get_token_id(self.to_match)
         if tok == Token.PLUS:
-            self.eat(Token.PLUS); r = self.parse_term()
-            return self.parse_factor2(ASTPlusNode(lhs, r))
+            self.eat(Token.PLUS)
+            rhs = self.parse_term()
+            return self.parse_factor2(ASTPlusNode(lhs, rhs))
         if tok == Token.MINUS:
-            self.eat(Token.MINUS); r = self.parse_term()
-            return self.parse_factor2(ASTMinusNode(lhs, r))
+            self.eat(Token.MINUS)
+            rhs = self.parse_term()
+            return self.parse_factor2(ASTMinusNode(lhs, rhs))
         return lhs
+
     def parse_term(self) -> ASTNode:
-        n = self.parse_unit()
-        return self.parse_term2(n)
+        return self.parse_term2(self.parse_unit())
+
     def parse_term2(self, lhs: ASTNode) -> ASTNode:
         tok = self.get_token_id(self.to_match)
         if tok == Token.MUL:
-            self.eat(Token.MUL); r = self.parse_unit()
-            return self.parse_term2(ASTMultNode(lhs, r))
+            self.eat(Token.MUL)
+            rhs = self.parse_unit()
+            return self.parse_term2(ASTMultNode(lhs, rhs))
         if tok == Token.DIV:
-            self.eat(Token.DIV); r = self.parse_unit()
-            return self.parse_term2(ASTDivNode(lhs, r))
+            self.eat(Token.DIV)
+            rhs = self.parse_unit()
+            return self.parse_term2(ASTDivNode(lhs, rhs))
         return lhs
+
     def parse_unit(self) -> ASTNode:
         tok = self.get_token_id(self.to_match)
         if tok == Token.NUM:
             v = self.to_match.value
-            node = ASTNumNode(v)
             self.eat(Token.NUM)
-            return node
+            return ASTNumNode(v)
         if tok == Token.ID:
-            name = self.to_match.value
-            data = self.symbol_table.lookup(name)
+            nm = self.to_match.value
+            data = self.symbol_table.lookup(nm)
             if data is None:
-                raise SymbolTableException(self.scanner.get_lineno(), name)
+                raise SymbolTableException(self.scanner.get_lineno(), nm)
             self.eat(Token.ID)
-            if data.id_type == IDType.IO:
-                return ASTIOIDNode(name, data.data_type)
-            return ASTVarIDNode(data.new_name, data.data_type)
+            return ASTIOIDNode(nm, data.data_type) if data.id_type == IDType.IO else ASTVarIDNode(data.get_new_name(), data.data_type)
         if tok == Token.LPAR:
             self.eat(Token.LPAR)
-            n = self.parse_expr()
+            node = self.parse_expr()
             self.eat(Token.RPAR)
-            return n
-        raise ParserException(self.scanner.get_lineno(), self.to_match,
-                              [Token.NUM, Token.ID, Token.LPAR])
+            return node
+        raise ParserException(self.scanner.get_lineno(), self.to_match, [Token.NUM, Token.ID, Token.LPAR])
+
+# Type inference helpers
+def is_leaf_node(node: ASTNode) -> bool:
+    return issubclass(type(node), ASTLeafNode)
+def is_binop_node(node: ASTNode) -> bool:
+    return issubclass(type(node), ASTBinOpNode)
+def is_unop_node(node: ASTNode) -> bool:
+    return issubclass(type(node), ASTUnOpNode)
+def convert_children_type(node: ASTNode) -> None:
+    if node.l_child.node_type == Type.INT and node.r_child.node_type == Type.FLOAT:
+        conv = ASTIntToFloatNode(node.l_child)
+        type_inference(conv)
+        node.l_child = conv
+    elif node.l_child.node_type == Type.FLOAT and node.r_child.node_type == Type.INT:
+        conv = ASTIntToFloatNode(node.r_child)
+        type_inference(conv)
+        node.r_child = conv
+
+def type_inference(node: ASTNode) -> Type:
+    if is_leaf_node(node):
+        return node.node_type
+    if is_binop_node(node):
+        type_inference(node.l_child)
+        type_inference(node.r_child)
+        if isinstance(node, (ASTPlusNode, ASTMinusNode, ASTMultNode, ASTDivNode)):
+            node.node_type = Type.FLOAT if (node.l_child.node_type == Type.FLOAT or node.r_child.node_type == Type.FLOAT) else Type.INT
+            convert_children_type(node)
+        elif isinstance(node, (ASTEqNode, ASTLtNode)):
+            node.node_type = Type.INT
+            convert_children_type(node)
+    if is_unop_node(node):
+        if isinstance(node, ASTIntToFloatNode):
+            node.node_type = Type.FLOAT
+        elif isinstance(node, ASTFloatToIntNode):
+            node.node_type = Type.INT
+    return node.node_type
 
