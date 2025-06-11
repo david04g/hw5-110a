@@ -406,5 +406,3 @@ class Parser:
         raise ParserException(self.scanner.get_lineno(), self.to_match,
                               [Token.NUM, Token.ID, Token.LPAR])
 
-# Type inference omitted for brevity; same as before
-

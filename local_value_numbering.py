@@ -1,5 +1,3 @@
-
-# local_value_numbering.py
 import re
 from typing import List, Tuple, Dict
 
@@ -51,4 +49,5 @@ def LVN(program: List[str]) -> Tuple[List[str], List[str], int]:
                 optimized.append(instr)
         new_program.extend(optimized)
     return new_program, new_vars, replaced
+
 
