@@ -133,5 +133,14 @@ def LVN(program: List[str]) -> Tuple[List[str], List[str], int]:
 
         new_program.extend(optimized_block)
         
-    return new_program, [], replaced_count
+    # --- 5. Collect all used virtual registers for declaration ---
+    all_vars = set()
+    # This regex finds all occurrences of variables matching the 'vr' or '_new_name' patterns.
+    var_regex = re.compile(r'\b(vr\d+|_new_name\d+)\b')
+    for instr in new_program:
+        found_vars = var_regex.findall(instr)
+        for var in found_vars:
+            all_vars.add(var)
+
+    return new_program, sorted(list(all_vars)), replaced_count
 
