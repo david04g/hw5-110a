@@ -1,107 +1,137 @@
 # local_value_numbering.py
 import re
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Set
 
 def is_virtual_register(v: str) -> bool:
     """Checks if a string is a virtual register."""
     return v.startswith("vr") or v.startswith("_new_name")
 
+def is_memory_variable(v: str) -> bool:
+    """Checks if a string is a memory variable (i.e., not a VR or literal)."""
+    # Handles cases like `x` but not `"some_string"` or integer literals
+    return v.isidentifier() and not is_virtual_register(v)
+
 def split_into_basic_blocks(program: List[str]) -> List[List[str]]:
     """Splits a list of instructions into basic blocks."""
     blocks = []
-    current = []
+    current_block = []
     for instr in program:
-        instr_strip = instr.strip()
-        if not instr_strip:
+        stripped_instr = instr.strip()
+        if not stripped_instr:
             continue
         
-        if re.match(r"^\w+:", instr_strip):
-            if current:
-                blocks.append(current)
-            current = [instr]
+        if re.match(r"^\w+:", stripped_instr):
+            if current_block:
+                blocks.append(current_block)
+            current_block = [instr]
         else:
-            current.append(instr)
-            if any(instr_strip.startswith(prefix) for prefix in ["br", "bne", "beq", "jmp"]):
-                blocks.append(current)
-                current = []
-    if current:
-        blocks.append(current)
+            current_block.append(instr)
+            if any(stripped_instr.startswith(p) for p in ["br", "bne", "beq", "jmp"]):
+                blocks.append(current_block)
+                current_block = []
+    if current_block:
+        blocks.append(current_block)
     return blocks
 
 def LVN(program: List[str]) -> Tuple[List[str], List[str], int]:
-    """Performs local value numbering optimization on the given program."""
+    """Performs local value numbering with corrected invalidation logic."""
     blocks = split_into_basic_blocks(program)
     new_program: List[str] = []
-    new_vars: List[str] = []
-    replaced = 0
+    replaced_count = 0
+    
+    COMMUTATIVE_OPS: Set[str] = {"add", "mul", "eq", "addi", "addf"}
+    NON_COMMUTATIVE_OPS: Set[str] = {"lti", "subi", "subf", "divi", "divf"}
+    # Note: load/store ops are handled separately
+    UNARY_OPS: Set[str] = {"vr_int2float"} 
 
     for block in blocks:
         value_table: Dict[Tuple[str, ...], str] = {}
         var_map: Dict[str, str] = {}
-        optimized: List[str] = []
+        optimized_block: List[str] = []
 
         for instr in block:
             instr_str = instr.strip()
 
-            # Invalidation on redefinition
-            dst_match = re.match(r"^\s*(\S+)\s*=", instr_str)
-            if dst_match:
-                dst = dst_match.group(1)
-                keys_to_remove = {k for k, v in value_table.items() if v == dst}
-                keys_to_remove.update({k for k in value_table if dst in k[1:]})
-                for k in keys_to_remove: del value_table[k]
-                if dst in var_map: del var_map[dst]
-                aliases_to_dst = [k for k, v in var_map.items() if v == dst]
-                for k in aliases_to_dst: del var_map[k]
+            # --- 1. Parse Instruction and Create Value Key ---
+            key = None
+            dst = None
+            is_copy = False
+            is_store = False
 
-            # Optimization logic
-            binary_op_match = re.match(r"(\S+)\s*=\s*(\S+)\((\S+),\s*(\S+)\);?", instr_str)
-            unary_op_match = re.match(r"(\S+)\s*=\s*(\S+)\((\S+)\);?", instr_str)
+            binary_match = re.match(r"(\S+)\s*=\s*(\S+)\((\S+),\s*(\S+)\);?", instr_str)
+            unary_match = re.match(r"(\S+)\s*=\s*(\S+)\((\S+)\);?", instr_str)
             copy_match = re.match(r"(\S+)\s*=\s*(\S+);", instr_str)
-
-            if binary_op_match:
-                dst, op, a, b = binary_op_match.groups()
+            
+            if binary_match:
+                dst, op, a, b = binary_match.groups()
                 canon_a = var_map.get(a, a)
                 canon_b = var_map.get(b, b)
-                
-                commutative_ops = ["add", "mul", "eq", "addi", "addf"]
-                non_commutative_ops = ["lti"] # Add other non-commutative ops here
-                
-                key = None
-                if op in commutative_ops:
-                    key = (op, *sorted([canon_a, canon_b]))
-                elif op in non_commutative_ops:
-                    key = (op, canon_a, canon_b)
-
-                if key and key in value_table:
-                    prev_dst = value_table[key]
-                    optimized.append(f"{dst} = {prev_dst};")
-                    var_map[dst] = prev_dst
-                    replaced += 1
-                else:
-                    if key: value_table[key] = dst
-                    optimized.append(instr)
-            elif unary_op_match:
-                dst, op, a = unary_op_match.groups()
+                if op in COMMUTATIVE_OPS: key = (op, *sorted([canon_a, canon_b]))
+                elif op in NON_COMMUTATIVE_OPS: key = (op, canon_a, canon_b)
+            
+            elif unary_match:
+                dst, op, a = unary_match.groups()
                 canon_a = var_map.get(a, a)
-                
-                optimizable_unary_ops = ["int2vr", "float2vr", "vr_int2float", "vr2float", "vr2int"]
-                key = (op, canon_a)
-
-                if op in optimizable_unary_ops and key in value_table:
-                    prev_dst = value_table[key]
-                    optimized.append(f"{dst} = {prev_dst};")
-                    var_map[dst] = prev_dst
-                    replaced += 1
-                else:
-                    if op in optimizable_unary_ops: value_table[key] = dst
-                    optimized.append(instr)
+                # Check for load (e.g., vr = float2vr(x)) or literal assignment (vr = int2vr(1))
+                load_match = re.match(r"(float|int)2vr", op)
+                if load_match:
+                    if is_memory_variable(a):
+                        key = ('load', a)
+                    else: # It's a literal assignment, e.g., int2vr(1)
+                        key = (op, a)
+                elif op in UNARY_OPS:
+                    key = (op, canon_a)
+            
             elif copy_match:
-                dst, src = copy_match.groups()
-                var_map[dst] = var_map.get(src, src)
-                optimized.append(instr)
-            else:
-                optimized.append(instr)
+                dst, _ = copy_match.groups()
+                is_copy = True
 
-        new_program.extend(optimized)
-    return new_program, new_vars, replaced
+            if not dst and re.match(r"(\S+)\s*=\s*vr2(float|int)", instr_str):
+                 is_store = True
+                 dst = instr_str.split('=')[0].strip()
+
+            # --- 2. Attempt Optimization ---
+            optimized = False
+            if key and key in value_table:
+                prev_dst = value_table[key]
+                optimized_block.append(f"  {dst} = {prev_dst};")
+                var_map[dst] = var_map.get(prev_dst, prev_dst) # Update alias map
+                replaced_count += 1
+                optimized = True
+
+            # --- 3. Invalidate Destination (AFTER optimization check) ---
+            if dst:
+                # Invalidate any value that `dst` previously held
+                keys_to_del = {k for k, v in value_table.items() if v == dst}
+                for k in keys_to_del: del value_table[k]
+
+                # Remove old aliases
+                if dst in var_map: del var_map[dst]
+                for k, v in list(var_map.items()):
+                    if v == dst: del var_map[k]
+                
+                # If `dst` is a memory location (from a store), invalidate our knowledge of it
+                if is_store and is_memory_variable(dst):
+                    if ('load', dst) in value_table:
+                        del value_table[('load', dst)]
+
+            # --- 4. Update Tables if No Optimization Occurred ---
+            if not optimized:
+                optimized_block.append(instr)
+                if key:
+                    value_table[key] = dst
+                elif is_copy:
+                    dst, src = copy_match.groups()
+                    var_map[dst] = var_map.get(src, src)
+            
+            # A store always updates our knowledge of what's in memory
+            store_match = re.match(r"(\S+)\s*=\s*vr2(float|int)\((\S+)\);?", instr_str)
+            if store_match:
+                mem_loc, _, src_reg = store_match.groups()
+                canon_src = var_map.get(src_reg, src_reg)
+                value_table[('load', mem_loc)] = canon_src
+
+        new_program.extend(optimized_block)
+        
+    return new_program, [], replaced_count
+
